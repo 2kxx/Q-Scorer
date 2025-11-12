@@ -189,9 +189,3 @@ This work is based on [DeQA-Score](https://github.com/zhiyuanyou/DeQA-Score). Si
 If you find our work useful for your research and applications, please cite using the BibTeX:
 
 ```bibtex
-@inproceedings{deqa_score,
-  title={Teaching Large Language Models to Regress Accurate Image Quality Scores using Score Distribution},
-  author={You, Zhiyuan and Cai, Xin and Gu, Jinjin and Xue, Tianfan and Dong, Chao},
-  booktitle={IEEE Conference on Computer Vision and Pattern Recognition},
-  year={2025},
-}
