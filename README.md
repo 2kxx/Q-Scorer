@@ -21,7 +21,7 @@
   <a href="https://github.com/2kxx/Q-Scorer/" target="_blank"><strong>Homepage</strong></a> |
   <a href="https://huggingface.co/2kxx/Qscorer_lora_5_1" target="_blank"><strong>Model Weights</strong></a> | 
   <a href="https://huggingface.co/datasets/2kxx/Q-Scorer" target="_blank"><strong>Datasets</strong></a> | 
-  <a href="" target="_blank"><strong>Paper</strong></a> 
+  <a href="https://arxiv.org/abs/2511.07812" target="_blank"><strong>Paper</strong></a> 
 </div>
 
 <h2>Abstract</h2> 
