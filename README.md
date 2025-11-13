@@ -1,5 +1,5 @@
 <div align="center">
-  <h1>Revisiting MLLM Based Image Quality Assessment: Errors and Remedy</h1> 
+  <h1>🔥[AAAI 2026] Revisiting MLLM Based Image Quality Assessment: Errors and Remedy</h1> 
 
 <div>
     <a href="https://github.com/2kxx/" target="_blank">Zhenchen Tang</a><sup>12</sup>,
