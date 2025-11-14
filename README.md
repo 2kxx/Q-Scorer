@@ -189,3 +189,9 @@ This work is based on [DeQA-Score](https://github.com/zhiyuanyou/DeQA-Score). Si
 If you find our work useful for your research and applications, please cite using the BibTeX:
 
 ```bibtex
+@article{tang2025revisiting,
+  title={Revisiting MLLM Based Image Quality Assessment: Errors and Remedy},
+  author={Tang, Zhenchen and Yang, Songlin and Peng, Bo and Wang, Zichuan and Dong, Jing},
+  journal={arXiv preprint arXiv:2511.07812},
+  year={2025}
+}
