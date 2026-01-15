@@ -1,6 +1,6 @@
 <div align="center">
   <h1>🔥[AAAI 2026] Revisiting MLLM Based Image Quality Assessment: Errors and Remedy</h1> 
-
+  <h2> Optimizing MLLM-based Scoring via a Score-Token + Decoder Paradigm</h2> 
 <div>
     <a href="https://github.com/2kxx/" target="_blank">Zhenchen Tang</a><sup>12</sup>,
     <a href="https://songlin1998.github.io/" target="_blank">Songlin Yang</a><sup>3</sup>,
