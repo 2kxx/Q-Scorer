@@ -54,7 +54,7 @@
 </div>
 </div>
 
-## 📊 Benchmark Results (SRCC / PLCC)
+## 📊 Benchmark Results (PLCC / SRCC)
 
 ### ⭐ MLLM-based
 | Category |    Methods     | KonIQ | SPAQcr | KADIDcr | LIVE-Wildcr | AGIQA-3Kcr | CSIQcr |
