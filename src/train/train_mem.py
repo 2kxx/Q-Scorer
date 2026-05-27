@@ -183,10 +183,31 @@ def get_peft_state_maybe_zero_3(named_params, bias):
 
 
 def get_peft_state_non_lora_maybe_zero_3(named_params, require_grad_only=True):
-    to_return = {k: t for k, t in named_params if "lora_" not in k}
-    if require_grad_only:
-        # to_return = {k: t for k, t in to_return.items() if t.requires_grad}
-        to_return = {k: t for k, t in to_return.items()}
+    # Previously the `requires_grad` filter was commented out, so this function
+    # dumped EVERY non-lora parameter of the base model. That is why the saved
+    # `non_lora_trainables.bin` ballooned to ~14 GB even when only a handful of
+    # extra modules (deepmlp, lm_head, optionally visual_abstractor) were
+    # actually trained. We re-enable the filter and additionally always
+    # persist the embedding tables (`embed_tokens.weight` and `lm_head.weight`)
+    # because their tensors get resized to add the `<score1>`..`<score5>`
+    # special tokens. The values for those new rows must round-trip even when
+    # `requires_grad` was False, otherwise the model loaded from a merged
+    # checkpoint will not produce the same hidden state at the score-token
+    # position as it did at training time.
+    always_keep_substrs = ("embed_tokens.weight", "lm_head.weight")
+
+    to_return = {}
+    for k, t in named_params:
+        if "lora_" in k:
+            continue
+        if (
+            require_grad_only
+            and not t.requires_grad
+            and not any(s in k for s in always_keep_substrs)
+        ):
+            continue
+        to_return[k] = t
+
     to_return = {
         k: maybe_zero_3(v, ignore_status=True).cpu() for k, v in to_return.items()
     }
