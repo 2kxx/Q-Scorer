@@ -320,12 +320,31 @@ DEFAULT_VISUAL_CONFIG = {
 
 class MPLUGOwl2Config(LlamaConfig):
     model_type = "mplug_owl2"
-    def __init__(self, visual_config=None, **kwargs):
+    def __init__(
+        self,
+        visual_config=None,
+        score_token_id=None,
+        score_tokens=None,
+        deepmlp_hidden_dims=None,
+        **kwargs,
+    ):
         if visual_config is None:
             self.visual_config = DEFAULT_VISUAL_CONFIG
         else:
             self.visual_config = visual_config
-        
+
+        # Persisted IQA-specific fields so that merged checkpoints are self-contained.
+        # `score_token_id` is the list of vocabulary ids for the IQA score tokens
+        # (typically in reverse order [<score5>..<score1>]).
+        # `score_tokens` is the matching list of token strings; kept for debuggability
+        # and so that the merged checkpoint records exactly which tokens were added.
+        # `deepmlp_hidden_dims` controls the regression head architecture.
+        self.score_token_id = list(score_token_id) if score_token_id else []
+        self.score_tokens = list(score_tokens) if score_tokens else []
+        self.deepmlp_hidden_dims = (
+            list(deepmlp_hidden_dims) if deepmlp_hidden_dims else [2048, 1024]
+        )
+
         super().__init__(
             **kwargs,
         )

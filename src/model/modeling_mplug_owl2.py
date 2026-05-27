@@ -23,8 +23,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn import CrossEntropyLoss
 
-from src.model.deepmlp import DeepMLP
-
 dir_path = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, dir_path)
 
@@ -32,11 +30,22 @@ from transformers import (AutoConfig, AutoModelForCausalLM, LlamaForCausalLM,
                           LlamaModel)
 from transformers.modeling_outputs import CausalLMOutputWithPast
 
+# Use relative imports for every sibling module so this file works both as part
+# of the `src.model` package and when copied next to its siblings into a
+# self-contained checkpoint directory loaded via `trust_remote_code=True`.
 from .configuration_mplug_owl2 import (MPLUGOwl2Config, MplugOwlVisionConfig,
                                        MplugOwlVisualAbstractorConfig)
+from .deepmlp import DeepMLP
 from .modeling_llama2 import replace_llama_modality_adaptive
 from .utils import extend_list, find_prefix
 from .visual_encoder import MplugOwlVisionModel, MplugOwlVisualAbstractorModel
+# Transformers' `get_relative_imports` only walks direct relative imports of the
+# entry-point module file. `.modeling_attn_mask_utils` is needed transitively by
+# `.modeling_llama2`, so we reference it here to make it visible to the
+# trust_remote_code dynamic loader. The alias is intentionally unused.
+from .modeling_attn_mask_utils import (  # noqa: F401
+    _prepare_4d_causal_attention_mask as _MPLUG_OWL2_TRANSITIVE_IMPORT,
+)
 
 IGNORE_INDEX = -100
 IMAGE_TOKEN_INDEX = -200
@@ -340,9 +349,17 @@ class MPLUGOwl2LlamaForCausalLM(LlamaForCausalLM, MPLUGOwl2MetaForCausalLM):
 
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
 
-        #定义mlp预测头和score tokens
-        self.deepmlp = DeepMLP(4096, [2048, 1024], 1)
-        self.score_tokenid = []
+        # MLP regression head and IQA score tokens.
+        # `deepmlp_hidden_dims` is read from config so the architecture is
+        # persisted across save/load. Input dim ties to config.hidden_size to
+        # avoid hard-coding 4096.
+        deepmlp_hidden_dims = getattr(config, "deepmlp_hidden_dims", None) or [2048, 1024]
+        self.deepmlp = DeepMLP(config.hidden_size, deepmlp_hidden_dims, 1)
+        # Persist score_token_id from config so the merged checkpoint loaded
+        # via `from_pretrained` already knows which vocab ids are score tokens.
+        # Fixes the previous typo `score_tokenid` that left `score_token_id`
+        # undefined and broke `forward_mlp` after a plain reload.
+        self.score_token_id = list(getattr(config, "score_token_id", None) or [])
 
         # Initialize weights and apply final processing
         self.deepmlp._initialize_weights()
@@ -522,8 +539,147 @@ class MPLUGOwl2LlamaForCausalLM(LlamaForCausalLM, MPLUGOwl2MetaForCausalLM):
                 subitem[key] = torch.stack(subitem[key], dim=0)
         return subitem
 
+    # ------------------------------------------------------------------
+    # One-line inference API
+    # ------------------------------------------------------------------
+    # `score()` mirrors the DeQA-Score style HF AutoModel UX:
+    #
+    #     model = AutoModelForCausalLM.from_pretrained(
+    #         "user/qscorer-merged",
+    #         trust_remote_code=True,
+    #         attn_implementation="eager",
+    #         torch_dtype=torch.float16,
+    #         device_map="auto",
+    #     )
+    #     model.score([Image.open("img.jpg")])
+    #
+    # It lazily loads the tokenizer and image processor from the same
+    # directory the model was loaded from, so the caller does not need to
+    # install this repo. The prompt template, the special score tokens, and
+    # the two-step decode loop match `scorer.py` / `src/evaluate/iqa_eval.py`.
+    def _maybe_init_score_runtime(self, tokenizer=None, image_processor=None):
+        if getattr(self, "_score_tokenizer", None) is None:
+            if tokenizer is not None:
+                self._score_tokenizer = tokenizer
+            else:
+                from transformers import AutoTokenizer
+                self._score_tokenizer = AutoTokenizer.from_pretrained(
+                    self.config._name_or_path, use_fast=False
+                )
+        if getattr(self, "_score_image_processor", None) is None:
+            if image_processor is not None:
+                self._score_image_processor = image_processor
+            else:
+                from transformers.models.clip.image_processing_clip import (
+                    CLIPImageProcessor,
+                )
+                self._score_image_processor = CLIPImageProcessor.from_pretrained(
+                    self.config._name_or_path
+                )
 
-AutoConfig.register("mplug_owl2", MPLUGOwl2Config)
-AutoModelForCausalLM.register(MPLUGOwl2Config, MPLUGOwl2LlamaForCausalLM)
+    @staticmethod
+    def _expand2square(pil_img, background_color):
+        from PIL import Image as _PILImage
+        width, height = pil_img.size
+        if width == height:
+            return pil_img
+        if width > height:
+            result = _PILImage.new(pil_img.mode, (width, width), background_color)
+            result.paste(pil_img, (0, (width - height) // 2))
+            return result
+        result = _PILImage.new(pil_img.mode, (height, height), background_color)
+        result.paste(pil_img, ((height - width) // 2, 0))
+        return result
+
+    @staticmethod
+    def _tokenizer_image_token(prompt, tokenizer, image_token_index):
+        chunks = [
+            tokenizer(chunk).input_ids if len(chunk) > 0 else []
+            for chunk in prompt.split(DEFAULT_IMAGE_TOKEN)
+        ]
+        input_ids = []
+        offset = 0
+        if len(chunks) > 0 and len(chunks[0]) > 0 and chunks[0][0] == tokenizer.bos_token_id:
+            offset = 1
+            input_ids.append(chunks[0][0])
+        sep = [image_token_index] * (offset + 1)
+        # Interleave chunks with the image-token separator.
+        flat = []
+        for i, chunk in enumerate(chunks):
+            if i > 0:
+                flat.extend(sep)
+            flat.extend(chunk[offset:] if i > 0 else chunk)
+        input_ids = flat if input_ids == [] else input_ids + flat[1:]
+        return torch.tensor(input_ids, dtype=torch.long)
+
+    @torch.inference_mode()
+    def score(self, images, tokenizer=None, image_processor=None):
+        """Score image quality for a list of PIL images.
+
+        Args:
+            images: list of PIL.Image objects (one or more).
+            tokenizer: optional. If omitted, loaded from the model directory.
+            image_processor: optional. If omitted, loaded from the model directory.
+
+        Returns:
+            list[float] of quality scores in the trained scale (typically [0, 5]).
+        """
+        if not isinstance(images, (list, tuple)):
+            images = [images]
+        self._maybe_init_score_runtime(tokenizer, image_processor)
+        tokenizer = self._score_tokenizer
+        image_processor = self._score_image_processor
+
+        prompt = (
+            "USER: How would you rate the quality of this image?\n"
+            f"{DEFAULT_IMAGE_TOKEN}\n"
+            "ASSISTANT: The quality of the image is"
+        )
+        input_ids = self._tokenizer_image_token(
+            prompt, tokenizer, IMAGE_TOKEN_INDEX
+        ).unsqueeze(0).to(self.device)
+
+        bg = tuple(int(x * 255) for x in image_processor.image_mean)
+        pil_imgs = [self._expand2square(img.convert("RGB"), bg) for img in images]
+        pixel_values = image_processor.preprocess(pil_imgs, return_tensors="pt")[
+            "pixel_values"
+        ].to(device=self.device, dtype=self.dtype)
+
+        current_input = input_ids.repeat(pixel_values.shape[0], 1)
+        embedding = None
+        # Two-step decode loop matches `scorer.py`: first step consumes the
+        # prompt, second step exposes the hidden state immediately after
+        # "The quality of the image is", which is what the regression head
+        # was trained on.
+        for step in range(2):
+            output = self(
+                input_ids=current_input,
+                images=pixel_values,
+                output_hidden_states=False,
+            )
+            logits = output["logits"][:, -1]
+            if step == 1:
+                # `output.hidden_states` here is the last-layer hidden state
+                # (see forward_mlp), not the all-layers tuple.
+                embedding = output["hidden_states"][:, -1, :]
+            next_token = torch.argmax(logits, dim=-1)
+            current_input = torch.cat([current_input, next_token.unsqueeze(1)], dim=1)
+
+        scores = self.deepmlp(embedding)
+        scores = torch.clamp(scores, min=0.0, max=5.0)
+        return scores.float().cpu().reshape(-1).tolist()
+
+
+# Register lazily so importing this module twice (e.g. once as part of the
+# `src.model` package and once as a trust_remote_code dynamic module) does not
+# raise "config already registered".
+try:
+    AutoConfig.register("mplug_owl2", MPLUGOwl2Config)
+except (ValueError, KeyError):
+    pass
+try:
+    AutoModelForCausalLM.register(MPLUGOwl2Config, MPLUGOwl2LlamaForCausalLM)
+except (ValueError, KeyError):
+    pass
 
 replace_llama_modality_adaptive()
