@@ -52,20 +52,24 @@ class Scorer(nn.Module):
             embedding = None
             current_input = self.input_ids.repeat(image_tensors.shape[0], 1)  # 扩展输入以匹配图像数量
 
+            # `forward_mlp` always sets `hidden_states` on the returned
+            # `CausalLMOutputWithPast` to the LAST-LAYER hidden state
+            # (`outputs[0]`), regardless of `output_hidden_states`. The flag
+            # only controls whether the inner LlamaModel additionally
+            # materialises the all-layers tuple, which we never read. Setting
+            # it to False saves a non-trivial amount of memory on every step.
             for i in range(2):
                 output = self.model(
                     input_ids=current_input,
                     images=image_tensors,
-                    output_hidden_states=True
+                    output_hidden_states=False,
                 )
                 logits = output["logits"][:, -1]  # 获取最后一个位置的 logits
-                probs = torch.softmax(logits, dim=-1)
                 if i == 1:
                     embedding = output["hidden_states"][:, -1, :]
                     output_logits = output["logits"][:, -1]
 
-                vocab_ids = torch.argmax(probs, dim=-1)
-                print(vocab_ids)
+                vocab_ids = torch.argmax(logits, dim=-1)
                 current_input = torch.cat([current_input, vocab_ids.unsqueeze(1)], dim=1)
 
             scores = self.model.deepmlp(embedding)
