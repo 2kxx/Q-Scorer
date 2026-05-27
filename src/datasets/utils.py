@@ -303,15 +303,8 @@ def load_video(video_file):
     return [Image.fromarray(frames[i]) for i in range(int(len(vr) / fps))]
 
 
-def expand2square(pil_img, background_color):
-    width, height = pil_img.size
-    if width == height:
-        return pil_img
-    elif width > height:
-        result = Image.new(pil_img.mode, (width, width), background_color)
-        result.paste(pil_img, (0, (width - height) // 2))
-        return result
-    else:
-        result = Image.new(pil_img.mode, (height, height), background_color)
-        result.paste(pil_img, ((height - width) // 2, 0))
-        return result
+# Re-exported here to preserve the existing import path used by the
+# dataset modules (`from .utils import expand2square`). The canonical
+# implementation lives in `src.mm_utils`; this avoids 4 copies of the same
+# function drifting independently.
+from src.mm_utils import expand2square  # noqa: E402,F401
