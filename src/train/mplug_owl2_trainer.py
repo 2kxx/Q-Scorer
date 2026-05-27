@@ -155,7 +155,12 @@ class MPLUGOwl2Trainer(Trainer):
             decay_parameters = get_parameter_names(opt_model, forbidden_layer_types=ALL_LAYERNORM_LAYERS)  # params except normlayers
             decay_parameters = [name for name in decay_parameters if "bias" not in name]  # params except normlayers and bias
             if self.args.visual_abstractor_lr is not None:
-                projector_parameters = [name for name, _ in opt_model.named_parameters() if "visual_abstractor_lr" in name]
+                # The previous filter substring was `"visual_abstractor_lr"` (the
+                # training-argument name), which never appears in any model
+                # parameter name. As a result the dedicated LR group for the
+                # visual abstractor was always empty and `--visual_abstractor_lr`
+                # was silently ignored. The correct match is `"visual_abstractor"`.
+                projector_parameters = [name for name, _ in opt_model.named_parameters() if "visual_abstractor" in name]
                 optimizer_grouped_parameters = [
                     {
                         "params": [
