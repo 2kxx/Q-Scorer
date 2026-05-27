@@ -98,6 +98,50 @@ python scorer.py \
   --img_path fig/boat.jpg
  ```
 
+### Installation-Free Quicker Start with Hugging Face AutoModel
+
+If you produce a **merged** checkpoint (LoRA folded into the base + custom modules), inference no longer needs the 14 GB base model nor a `pip install` of this repo. End-users can run:
+
+```python
+import requests
+import torch
+from transformers import AutoModelForCausalLM
+
+model = AutoModelForCausalLM.from_pretrained(
+    "2kxx/Qscorer_merged",            # or a local path produced by merge_lora_save.py
+    trust_remote_code=True,
+    attn_implementation="eager",
+    torch_dtype=torch.float16,
+    device_map="auto",
+)
+
+from PIL import Image
+print(model.score([
+    Image.open(requests.get(
+        "https://raw.githubusercontent.com/2kxx/Q-Scorer/main/fig/boat.jpg",
+        stream=True,
+    ).raw)
+]))
+```
+
+**Producing the merged checkpoint:**
+
+```shell
+python scripts/merge_lora_save.py \
+  --model-path        checkpoints/Qscorer_lora_5_1 \
+  --model-base        /path/to/mplug-owl2-llama2-7b \
+  --preprocessor-path ./preprocessor/ \
+  --output-dir        checkpoints/Qscorer_merged
+```
+
+The script merges the LoRA via `peft.PeftModel.merge_and_unload()`, persists `score_token_id`/`score_tokens`/`deepmlp_hidden_dims` into `config.json`, saves the tokenizer (with `<score1>`–`<score5>` already added) and CLIP image processor side-by-side, and copies the modeling `.py` files into the output dir along with an `auto_map` so `trust_remote_code=True` works out of the box.
+
+You can also try the local one-line demo:
+
+```shell
+python quick_start.py --model checkpoints/Qscorer_merged --img fig/boat.jpg
+```
+
 
 ## Training, Inference & Evaluation
 
