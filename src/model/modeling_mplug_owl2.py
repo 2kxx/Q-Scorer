@@ -459,25 +459,51 @@ class MPLUGOwl2LlamaForCausalLM(LlamaForCausalLM, MPLUGOwl2MetaForCausalLM):
             shift_logits = logits[..., :-1, :].contiguous()
             shift_labels = labels[..., 1:].contiguous()
             shift_embedding = hidden_states[..., :-1, :].contiguous()
-            loss_score = 0.0
 
-            for b in range(shift_labels.size(0)):
-                for idx, i in enumerate(shift_labels[b]):
-                    if i in self.score_token_id:
-                        embedding = shift_embedding[b][idx]
-                        score_a = self.deepmlp(embedding)
-                        score_a = torch.clamp(score_a, min=0.0, max=5.0)
-                        loss_score += ((score_a - gt_scores[b]) ** 2)
+            # Vectorized score loss.
+            # The previous implementation ran two nested Python loops over
+            # batch and sequence positions and called `self.deepmlp` once per
+            # matching position (and used `i in self.score_token_id` on a
+            # Python list, which is O(K) per position). For typical sequences
+            # this is fine but it dominates step time when there are many
+            # score-token positions. The mask-based version below is
+            # numerically identical to the original: it computes the same
+            # sum-of-squared-errors over all positions whose `shift_labels`
+            # match any score token id, then divides by the batch size.
+            if self.score_token_id:
+                score_id_tensor = torch.as_tensor(
+                    self.score_token_id,
+                    device=shift_labels.device,
+                    dtype=shift_labels.dtype,
+                )
+                mask = torch.isin(shift_labels, score_id_tensor)  # [B, T-1]
+            else:
+                mask = torch.zeros_like(shift_labels, dtype=torch.bool)
 
-            loss_score /= shift_labels.size(0)
-            print("loss_score:", loss_score)
+            if mask.any():
+                selected_embeddings = shift_embedding[mask]                # [N, D]
+                selected_scores = self.deepmlp(selected_embeddings)        # [N]
+                selected_scores = torch.clamp(selected_scores, min=0.0, max=5.0)
+                batch_idx = (
+                    torch.arange(shift_labels.size(0), device=shift_labels.device)
+                    .unsqueeze(1)
+                    .expand_as(shift_labels)
+                )
+                selected_gt = gt_scores[batch_idx[mask]]                   # [N]
+                loss_score = ((selected_scores - selected_gt) ** 2).sum()
+            else:
+                loss_score = torch.zeros((), device=shift_labels.device)
+
+            loss_score = loss_score / shift_labels.size(0)
 
             loss_fct = CrossEntropyLoss()
             shift_logits = shift_logits.view(-1, self.config.vocab_size)
             shift_labels = shift_labels.view(-1)
             shift_labels = shift_labels.to(shift_logits.device)
             loss = loss_fct(shift_logits, shift_labels)
-            print("txt_loss:", loss)
+            # Per-batch loss logging is handled in `forward(input_type='single')`
+            # at rank 0 only; the earlier raw `print` calls here fired on every
+            # rank and every micro-batch, flooding training logs.
         if not return_dict:
             output = (logits,) + outputs[1:]
             return (loss,) + output if loss is not None else output
