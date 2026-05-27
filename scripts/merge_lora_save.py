@@ -68,6 +68,78 @@ _MODEL_FILES = [
 ]
 
 
+_MODEL_CARD_TEMPLATE = """---
+license: apache-2.0
+library_name: transformers
+pipeline_tag: image-to-text
+tags:
+  - image-quality-assessment
+  - iqa
+  - mplug-owl2
+  - q-scorer
+---
+
+# Q-Scorer (merged checkpoint)
+
+Merged checkpoint of **Q-Scorer**, the IQA framework from
+[*Revisiting MLLM Based Image Quality Assessment: Errors and Remedy*](https://arxiv.org/abs/2511.07812)
+(AAAI 2026). LoRA has been folded into the base mPLUG-Owl2-LLaMA-2 7B and the
+extra IQA modules (`DeepMLP` regression head + `<score1>..<score5>` special
+tokens) are baked in, so this single checkpoint loads with a one-liner.
+
+Source code: <https://github.com/2kxx/Q-Scorer>
+
+## Usage
+
+```python
+import requests
+import torch
+from PIL import Image
+from transformers import AutoModelForCausalLM
+
+model = AutoModelForCausalLM.from_pretrained(
+    "<your-username>/Qscorer_merged",
+    trust_remote_code=True,
+    attn_implementation="eager",
+    torch_dtype=torch.float16,
+    device_map="auto",
+)
+
+img = Image.open(requests.get(
+    "https://raw.githubusercontent.com/2kxx/Q-Scorer/main/fig/boat.jpg",
+    stream=True,
+).raw)
+print(model.score([img]))
+# >>> [3.87]    # list[float], clamped to [0, 5], higher = better quality
+```
+
+Batch usage:
+
+```python
+scores = model.score([Image.open(p) for p in paths])
+```
+
+## Hardware
+
+- ~16 GB GPU memory (fp16) for inference. CPU is not supported.
+
+## License
+
+Apache 2.0.
+
+## Citation
+
+```bibtex
+@article{tang2025revisiting,
+  title={Revisiting MLLM Based Image Quality Assessment: Errors and Remedy},
+  author={Tang, Zhenchen and Yang, Songlin and Peng, Bo and Wang, Zichuan and Dong, Jing},
+  journal={arXiv preprint arXiv:2511.07812},
+  year={2025}
+}
+```
+"""
+
+
 def _copy_remote_code(src_model_dir: str, out_dir: str) -> None:
     """Copy modeling .py files into the checkpoint dir for trust_remote_code."""
     for fname in _MODEL_FILES:
@@ -78,6 +150,17 @@ def _copy_remote_code(src_model_dir: str, out_dir: str) -> None:
                 "Run this script from a checkout of the Q-Scorer repo."
             )
         shutil.copy2(src, os.path.join(out_dir, fname))
+
+
+def _write_model_card(out_dir: str) -> None:
+    """Write a starter HuggingFace model card.
+
+    Saved as `MODEL_CARD.md` (not `README.md`) so it does not collide with the
+    repo-level `README.md` end-users may already have when running the script.
+    On upload, rename to `README.md` to make it the Hub landing page.
+    """
+    with open(os.path.join(out_dir, "MODEL_CARD.md"), "w", encoding="utf-8") as f:
+        f.write(_MODEL_CARD_TEMPLATE)
 
 
 def main():
@@ -165,12 +248,17 @@ def main():
         )
         print(f"Copying modeling files from {src_model_dir} for trust_remote_code support...")
         _copy_remote_code(src_model_dir, args.output_dir)
+        print("Writing starter MODEL_CARD.md ...")
+        _write_model_card(args.output_dir)
 
     print("=" * 80)
-    print("Done. Try loading with:")
+    print("Done.")
+    print()
+    print("Local smoke test:")
     print()
     print("    from transformers import AutoModelForCausalLM")
     print("    import torch")
+    print("    from PIL import Image")
     print("    model = AutoModelForCausalLM.from_pretrained(")
     print(f"        '{args.output_dir}',")
     print("        trust_remote_code=True,")
@@ -178,8 +266,25 @@ def main():
     print(f"        torch_dtype=torch.{args.torch_dtype},")
     print("        device_map='auto',")
     print("    )")
-    print("    from PIL import Image")
     print("    print(model.score([Image.open('fig/boat.jpg')]))")
+    print()
+    print("Or via the bundled CLI:")
+    print()
+    print(f"    python quick_start.py --model {args.output_dir} --img fig/boat.jpg")
+    print()
+    print("-" * 80)
+    print("To publish on HuggingFace Hub:")
+    print()
+    print("    pip install -U 'huggingface_hub[cli]'")
+    print("    huggingface-cli login")
+    print("    huggingface-cli repo create Qscorer_merged --type model")
+    print(f"    huggingface-cli upload <your-username>/Qscorer_merged \\")
+    print(f"        {args.output_dir} \\")
+    print("        . \\")
+    print("        --repo-type model")
+    print()
+    print("Then rename MODEL_CARD.md -> README.md on the Hub so it renders")
+    print("as the repo's landing page.")
     print("=" * 80)
 
 
