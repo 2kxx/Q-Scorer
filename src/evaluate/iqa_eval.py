@@ -13,7 +13,7 @@ from transformers import AutoTokenizer, AutoModelForCausalLM, CLIPImageProcessor
 
 from src.constants import DEFAULT_IMAGE_TOKEN, IMAGE_TOKEN_INDEX
 from src.conversation import conv_templates
-from src.mm_utils import get_model_name_from_path, tokenizer_image_token
+from src.mm_utils import expand2square, get_model_name_from_path, tokenizer_image_token
 from src.model.builder import load_pretrained_model
 
 
@@ -107,19 +107,8 @@ def main(args):
 
             image = load_image(os.path.join(root_dir, filename))
 
-            def expand2square(pil_img, background_color):
-                width, height = pil_img.size
-                if width == height:
-                    return pil_img
-                elif width > height:
-                    result = Image.new(pil_img.mode, (width, width), background_color)
-                    result.paste(pil_img, (0, (width - height) // 2))
-                    return result
-                else:
-                    result = Image.new(pil_img.mode, (height, height), background_color)
-                    result.paste(pil_img, ((height - width) // 2, 0))
-                    return result
-
+            # Previously `expand2square` was redefined inline on every
+            # iteration; reuse the canonical implementation from `mm_utils`.
             image = expand2square(
                 image, tuple(int(x * 255) for x in image_processor.image_mean)
             )
@@ -137,19 +126,24 @@ def main(args):
                     embedding = None
                     current_input = input_ids.repeat(len(image_tensors), 1)  # 扩展输入以匹配图像数量
 
-                    for i in range(2):
+                    # See note in scorer.py: `forward_mlp` always returns the
+                    # last-layer hidden state on `output.hidden_states`, so
+                    # passing the flag as True only wastes memory by
+                    # materialising the all-layers tuple we never read.
+                    # We also avoid shadowing the outer `i` (the enumerate
+                    # index) by using `step` as the inner loop variable.
+                    for step in range(2):
                         output = model(
                             input_ids=current_input,
                             images=torch.cat(image_tensors, 0),
-                            output_hidden_states=True
+                            output_hidden_states=False,
                         )
                         logits = output["logits"][:, -1]  # 获取最后一个位置的 logits
-                        probs = torch.softmax(logits, dim=-1)
-                        if i == 1:
+                        if step == 1:
                             embedding = output["hidden_states"][:, -1, :]
                             output_logits = output["logits"][:, -1]
 
-                        vocab_ids = torch.argmax(probs, dim=-1)
+                        vocab_ids = torch.argmax(logits, dim=-1)
                         current_input = torch.cat([current_input, vocab_ids.unsqueeze(1)], dim=1)
 
                     scores = model.deepmlp(embedding)
