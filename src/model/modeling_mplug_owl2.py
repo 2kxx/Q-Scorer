@@ -619,23 +619,38 @@ class MPLUGOwl2LlamaForCausalLM(LlamaForCausalLM, MPLUGOwl2MetaForCausalLM):
 
     @staticmethod
     def _tokenizer_image_token(prompt, tokenizer, image_token_index):
-        chunks = [
+        # Verbatim port of `src.mm_utils.tokenizer_image_token`. An earlier
+        # "optimised" rewrite of this helper accidentally emitted TWO image
+        # tokens per `<|image|>` placeholder when the LLaMA tokenizer added
+        # `bos` to each chunk (i.e. offset == 1), which made
+        # `prepare_inputs_labels_for_multimodal` try to gather more image
+        # features than were provided and crash with `IndexError`. The trick
+        # in the original is that `x[offset:]` is applied to BOTH chunks and
+        # the separator list, so the separator
+        # `[image_token_index] * (offset + 1)` always becomes a single
+        # `image_token_index` element after the slice. We restore that exact
+        # behaviour here.
+        prompt_chunks = [
             tokenizer(chunk).input_ids if len(chunk) > 0 else []
             for chunk in prompt.split(DEFAULT_IMAGE_TOKEN)
         ]
+
+        def insert_separator(X, sep):
+            return [ele for sublist in zip(X, [sep] * len(X)) for ele in sublist][:-1]
+
         input_ids = []
         offset = 0
-        if len(chunks) > 0 and len(chunks[0]) > 0 and chunks[0][0] == tokenizer.bos_token_id:
+        if (
+            len(prompt_chunks) > 0
+            and len(prompt_chunks[0]) > 0
+            and prompt_chunks[0][0] == tokenizer.bos_token_id
+        ):
             offset = 1
-            input_ids.append(chunks[0][0])
-        sep = [image_token_index] * (offset + 1)
-        # Interleave chunks with the image-token separator.
-        flat = []
-        for i, chunk in enumerate(chunks):
-            if i > 0:
-                flat.extend(sep)
-            flat.extend(chunk[offset:] if i > 0 else chunk)
-        input_ids = flat if input_ids == [] else input_ids + flat[1:]
+            input_ids.append(prompt_chunks[0][0])
+
+        for x in insert_separator(prompt_chunks, [image_token_index] * (offset + 1)):
+            input_ids.extend(x[offset:])
+
         return torch.tensor(input_ids, dtype=torch.long)
 
     @torch.inference_mode()
