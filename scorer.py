@@ -83,7 +83,7 @@ if __name__ == "__main__":
     parser.add_argument("--model-path", type=str)
     parser.add_argument("--model-base", type=str)
     parser.add_argument("--preprocessor-path", type=str)
-    parser.add_argument("--device", type=str, default="cuda:2")
+    parser.add_argument("--device", type=str, default="cuda:0")
     parser.add_argument("--img_path", type=str)
     args = parser.parse_args()
 
