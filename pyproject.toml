@@ -3,9 +3,9 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "DeQA-Score"
-version = "1.2.0"
-description = "Teaching Large Language Models to Regress Accurate Image Quality Scores using Score Distribution (based on mPLUG-Owl2)"
+name = "Q-Scorer"
+version = "1.0.0"
+description = "Revisiting MLLM Based Image Quality Assessment: Errors and Remedy (AAAI 2026). Score-token + decoder paradigm built on mPLUG-Owl2."
 readme = "README.md"
 requires-python = ">=3.8"
 classifiers = [
@@ -26,7 +26,9 @@ dependencies = [
 train = ["deepspeed==0.9.5", "ninja", "wandb"]
 
 [project.urls]
-"Bug Tracker" = "https://github.com/zhiyuanyou/DeQA-Score/issues"
+"Homepage" = "https://github.com/2kxx/Q-Scorer"
+"Bug Tracker" = "https://github.com/2kxx/Q-Scorer/issues"
+"Paper" = "https://arxiv.org/abs/2511.07812"
 
 [tool.setuptools.packages.find]
 exclude = ["assets*", "benchmark*", "docs", "dist*", "playground*", "scripts*", "tests*"]
