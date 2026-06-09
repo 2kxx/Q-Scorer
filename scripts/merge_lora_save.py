@@ -155,12 +155,24 @@ def _copy_remote_code(src_model_dir: str, out_dir: str) -> None:
 def _write_model_card(out_dir: str) -> None:
     """Write a starter HuggingFace model card.
 
-    Saved as `MODEL_CARD.md` (not `README.md`) so it does not collide with the
-    repo-level `README.md` end-users may already have when running the script.
-    On upload, rename to `README.md` to make it the Hub landing page.
+    Writes two files into the checkpoint directory:
+      * `MODEL_CARD.md` (always) – kept for backward compatibility with the
+        previous version of this script.
+      * `README.md` (only if one does not already exist in ``out_dir``) – so
+        that ``hf upload`` produces a Hub repo whose landing page renders the
+        model card automatically, with no manual rename step. The existence
+        guard protects users who point ``--output-dir`` at a directory that
+        already contains a different README they care about (e.g. the repo
+        root). In the typical workflow ``--output-dir`` is a fresh
+        ``checkpoints/Qscorer_merged`` directory and both files get written.
     """
     with open(os.path.join(out_dir, "MODEL_CARD.md"), "w", encoding="utf-8") as f:
         f.write(_MODEL_CARD_TEMPLATE)
+
+    readme_path = os.path.join(out_dir, "README.md")
+    if not os.path.exists(readme_path):
+        with open(readme_path, "w", encoding="utf-8") as f:
+            f.write(_MODEL_CARD_TEMPLATE)
 
 
 def main():
@@ -273,18 +285,18 @@ def main():
     print(f"    python quick_start.py --model {args.output_dir} --img fig/boat.jpg")
     print()
     print("-" * 80)
-    print("To publish on HuggingFace Hub:")
+    print("To publish on HuggingFace Hub (new `hf` CLI; `huggingface-cli` is deprecated):")
     print()
     print("    pip install -U 'huggingface_hub[cli]'")
-    print("    huggingface-cli login")
-    print("    huggingface-cli repo create Qscorer_merged --type model")
-    print(f"    huggingface-cli upload <your-username>/Qscorer_merged \\")
+    print("    hf auth login")
+    print("    hf repos create <your-username>/Qscorer_merged --repo-type model")
+    print(f"    hf upload <your-username>/Qscorer_merged \\")
     print(f"        {args.output_dir} \\")
     print("        . \\")
     print("        --repo-type model")
     print()
-    print("Then rename MODEL_CARD.md -> README.md on the Hub so it renders")
-    print("as the repo's landing page.")
+    print("README.md is already written into the output dir, so the Hub")
+    print("repo will render a model card automatically without any rename.")
     print("=" * 80)
 
 
